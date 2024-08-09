@@ -1,0 +1,7 @@
+transformers
+sentence-transformers
+faiss-cpu
+flask
+flask-cors
+torch
+gunicorn

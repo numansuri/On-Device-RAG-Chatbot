@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChatGPT-Like Interface</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f7f7f7;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        .container {
+            width: 50%;
+            background: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .chat-box {
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            padding: 10px;
+            height: 300px;
+            overflow-y: scroll;
+            margin-bottom: 20px;
+        }
+        .input-group {
+            display: flex;
+        }
+        .input-group input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            margin-right: 10px;
+        }
+        .input-group button {
+            padding: 10px 20px;
+            border: none;
+            background: #007bff;
+            color: white;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        .input-group button:hover {
+            background: #0056b3;
+        }
+        .upload-group {
+            margin-bottom: 20px;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="upload-group">
+            <input type="file" id="fileInput">
+            <button onclick="uploadFile()">Upload File</button>
+        </div>
+        <div class="chat-box" id="chatBox"></div>
+        <div class="input-group">
+            <input type="text" id="queryInput" placeholder="Type your query...">
+            <button onclick="sendQuery()">Send</button>
+        </div>
+    </div>
+    <script>
+        async function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            if (!file) {
+                alert('Please select a file first.');
+                return;
+            }
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const response = await fetch('http://localhost:2000/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                alert(result.message);
+            } catch (error) {
+                console.error('Error:', error);
+                alert('An error occurred while uploading the file.');
+            }
+        }
+
+        async function sendQuery() {
+            const queryInput = document.getElementById('queryInput');
+            const query = queryInput.value;
+            if (!query.trim()) {
+                alert('Please enter a query.');
+                return;
+            }
+            const chatBox = document.getElementById('chatBox');
+            chatBox.innerHTML += `<div><strong>You:</strong> ${query}</div>`;
+            queryInput.value = '';
+            
+            try {
+                const response = await fetch('http://localhost:2000/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ query })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                console.log('Server response:', result);  // For debugging
+                
+                if (result.error) {
+                    chatBox.innerHTML += `<div class="error"><strong>Error:</strong> ${result.error}</div>`;
+                } else if (result.response) {
+                    chatBox.innerHTML += `<div><strong>Bot:</strong> ${result.response}</div>`;
+                } else {
+                    chatBox.innerHTML += `<div class="error"><strong>Error:</strong> Unexpected response from server</div>`;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                chatBox.innerHTML += `<div class="error"><strong>Error:</strong> ${error.message}</div>`;
+            }
+            
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+    </script>
+</body>
+</html>
