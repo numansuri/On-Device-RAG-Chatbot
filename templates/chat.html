@@ -6,9 +6,28 @@
     <title>{{ chat.title }}</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
-        .chat-container {
-            height: calc(100vh - 300px);
+        body, html {
+            height: 100%;
+            margin: 0;
+        }
+        .chat-layout {
+            display: flex;
+            height: 100vh;
+        }
+        .documents-pane {
+            width: 250px;
             overflow-y: auto;
+        }
+        .main-chat-area {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .chat-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 1rem;
         }
         .message {
             max-width: 80%;
@@ -22,7 +41,7 @@
         }
         #userInput {
             min-height: 40px;
-            max-height: 200px;
+            max-height: 120px;
             resize: none;
             overflow-y: auto;
         }
@@ -34,60 +53,76 @@
     </style>
 </head>
 <body class="bg-gray-100">
-    <div class="container mx-auto px-4 py-8">
-        <h1 class="text-3xl font-bold mb-4">{{ chat.title }}</h1>
-        
-        <!-- Document Upload Section -->
-        <div class="mb-4">
-            <form action="{{ url_for('upload_documents', chat_id=chat.id) }}" method="post" enctype="multipart/form-data">
-                <input type="file" name="documents" multiple accept=".txt,.doc,.docx,.pdf,.xls,.xlsx,.ppt,.pptx" class="mb-2">
-                <button type="submit" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Upload Documents</button>
-            </form>
+    <div class="chat-layout">
+        <!-- Documents Side Pane -->
+        <div class="documents-pane bg-white p-4 border-r">
+            <h2 class="text-lg font-bold mb-4">Uploaded Documents</h2>
+            <ul id="documentsList" class="list-disc pl-5">
+                <!-- Documents will be populated here -->
+            </ul>
         </div>
 
-        <!-- Clear Chat Button -->
-        <div class="mb-4">
-            <form action="{{ url_for('clear_chat', chat_id=chat.id) }}" method="post" onsubmit="return confirm('Are you sure you want to clear this chat? This will delete all messages and uploaded documents.');">
-                <button type="submit" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">Clear Chat</button>
-            </form>
-        </div>
+        <!-- Main Chat Area -->
+        <div class="main-chat-area">
+            <div class="p-4 bg-white shadow-md">
+                <h1 class="text-2xl font-bold mb-2">{{ chat.title }}</h1>
+                
+                <!-- Document Upload Section -->
+                <div class="mb-2">
+                    <form action="{{ url_for('upload_documents', chat_id=chat.id) }}" method="post" enctype="multipart/form-data" class="flex items-center">
+                        <input type="file" name="documents" multiple accept=".txt,.doc,.docx,.pdf,.xls,.xlsx,.ppt,.pptx" class="mr-2">
+                        <button type="submit" class="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600">Upload</button>
+                    </form>
+                </div>
 
-        <!-- Flash Messages -->
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ category }} mb-4 p-4 rounded {% if category == 'danger' %}bg-red-100 text-red-700{% elif category == 'success' %}bg-green-100 text-green-700{% else %}bg-blue-100 text-blue-700{% endif %}">
-                        {{ message }}
+                <!-- Clear Chat Button -->
+                <form action="{{ url_for('clear_chat', chat_id=chat.id) }}" method="post" onsubmit="return confirm('Are you sure you want to clear this chat? This will delete all messages and uploaded documents.');" class="inline-block">
+                    <button type="submit" class="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600">Clear Chat</button>
+                </form>
+                
+                <a href="{{ url_for('home') }}" class="text-blue-500 hover:underline text-sm ml-2">Back to Home</a>
+            </div>
+
+            <!-- Flash Messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }} m-4 p-3 rounded {% if category == 'danger' %}bg-red-100 text-red-700{% elif category == 'success' %}bg-green-100 text-green-700{% else %}bg-blue-100 text-blue-700{% endif %}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <div class="chat-container bg-white" data-chat-id="{{ chat.id }}">
+                {% for message in messages %}
+                    <div class="flex {% if message.is_user %}justify-end{% else %}justify-start{% endif %} mb-4">
+                        <div class="message {% if message.is_user %}user-message{% else %}bot-message{% endif %} rounded-lg p-3">
+                            {% if message.is_user %}
+                                {{ message.content }}
+                            {% else %}
+                                {{ message.content|safe }}
+                            {% endif %}
+                            {% if not message.is_user and message.get_citations() %}
+                                <div class="citation">
+                                    Sources:
+                                    <ol>
+                                        {% for citation in message.get_citations() %}
+                                            <li>{{ citation }}</li>
+                                        {% endfor %}
+                                    </ol>
+                                </div>
+                            {% endif %}
+                        </div>
                     </div>
                 {% endfor %}
-            {% endif %}
-        {% endwith %}
-
-        <div class="chat-container bg-white rounded-lg shadow-md p-4 mb-4" data-chat-id="{{ chat.id }}">
-            {% for message in messages %}
-                <div class="flex {% if message.is_user %}justify-end{% else %}justify-start{% endif %} mb-4">
-                    <div class="message {% if message.is_user %}user-message{% else %}bot-message{% endif %} rounded-lg p-3">
-                        {{ message.content }}
-                        {% if not message.is_user and message.get_citations() %}
-                            <div class="citation">
-                                Sources:
-                                <ol>
-                                    {% for citation in message.get_citations() %}
-                                        <li>{{ citation }}</li>
-                                    {% endfor %}
-                                </ol>
-                            </div>
-                        {% endif %}
-                    </div>
+            </div>
+            <div class="p-4 bg-white border-t">
+                <div class="flex items-center">
+                    <textarea id="userInput" class="flex-grow border rounded-l-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500" rows="1" placeholder="Type your message..."></textarea>
+                    <button id="sendButton" class="bg-blue-500 text-white px-4 py-2 rounded-r-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500">Send</button>
                 </div>
-            {% endfor %}
-        </div>
-        <div class="flex items-center">
-            <textarea id="userInput" class="flex-grow border rounded-l-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500" rows="1" placeholder="Type your message..."></textarea>
-            <button id="sendButton" class="bg-blue-500 text-white px-4 py-2 rounded-r-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500">Send</button>
-        </div>
-        <div class="mt-4">
-            <a href="{{ url_for('home') }}" class="text-blue-500 hover:underline">Back to Home</a>
+            </div>
         </div>
     </div>
 
@@ -96,6 +131,7 @@
         const sendButton = document.getElementById('sendButton');
         const chatContainer = document.querySelector('.chat-container');
         const chatId = chatContainer.getAttribute('data-chat-id');
+        const documentsList = document.getElementById('documentsList');
 
         userInput.addEventListener('input', function() {
             this.style.height = 'auto';
@@ -149,13 +185,33 @@
             }
             messageDiv.innerHTML = `
                 <div class="message ${sender === 'You' ? 'user-message' : 'bot-message'} rounded-lg p-3">
-                    ${message}
+                    ${sender === 'You' ? message : message}
                     ${citationHtml}
                 </div>
             `;
             chatContainer.appendChild(messageDiv);
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
+
+        // Function to fetch and display uploaded documents
+        function fetchDocuments() {
+            fetch(`/get_documents/${chatId}`)
+                .then(response => response.json())
+                .then(documents => {
+                    documentsList.innerHTML = '';
+                    documents.forEach(doc => {
+                        const li = document.createElement('li');
+                        li.textContent = doc;
+                        documentsList.appendChild(li);
+                    });
+                });
+        }
+
+        // Fetch documents when the page loads
+        fetchDocuments();
+
+        // Refresh documents list every 30 seconds
+        setInterval(fetchDocuments, 30000);
     </script>
 </body>
 </html>

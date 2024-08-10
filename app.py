@@ -1,7 +1,6 @@
 from flask import Flask, render_template, redirect, url_for, flash, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
-from flask_migrate import Migrate
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from models import db, User, Chat, Message
 from forms import RegistrationForm, LoginForm
@@ -10,11 +9,11 @@ import shutil
 from werkzeug.utils import secure_filename
 import json
 from datetime import datetime
-from sentence_transformers import SentenceTransformer
-import faiss
+import requests
 import PyPDF2
 import docx
 import pandas as pd
+import re
 
 app = Flask(__name__)
 app.config.from_object('config.Config')
@@ -27,12 +26,6 @@ UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 1 * 1024 * 1024 * 1024  # 1 GB
-
-# Initialize sentence transformer model
-model = SentenceTransformer('all-MiniLM-L6-v2')
-
-# Initialize FAISS index
-index = faiss.IndexFlatL2(384)  # 384 is the dimension of the 'all-MiniLM-L6-v2' model
 
 documents = []
 
@@ -68,17 +61,62 @@ def process_document(file_path):
     
     return text
 
+def summarize_document(text, filename):
+    prompt = f"Summarize the following document in 3-5 sentences:\n\n{text[:1000]}..."  # Limit text to prevent token overflow
+    response = requests.post('http://localhost:11434/api/generate',
+                             json={
+                                 "model": "llama3.1",
+                                 "prompt": prompt,
+                                 "stream": False
+                             })
+    summary = response.json()['response']
+    return filename, summary
+
+def process_response(response):
+    # Convert numbered lists
+    response = re.sub(r'(\d+\.\s*.*?)(?=\n\d+\.|\Z)', r'<li>\1</li>', response, flags=re.DOTALL)
+    response = re.sub(r'((?:<li>.*?</li>\n*)+)', r'<ol>\1</ol>', response, flags=re.DOTALL)
+    
+    # Convert bullet point lists
+    response = re.sub(r'(•\s*.*?)(?=\n•|\Z)', r'<li>\1</li>', response, flags=re.DOTALL)
+    response = re.sub(r'((?:<li>.*?</li>\n*)+)', r'<ul>\1</ul>', response, flags=re.DOTALL)
+    
+    # Convert simple tables (assuming pipe-separated values)
+    def table_replace(match):
+        rows = match.group(1).split('\n')
+        table_html = '<table class="border-collapse border border-gray-400 w-full">'
+        for i, row in enumerate(rows):
+            cells = row.split('|')
+            table_html += '<tr>'
+            for cell in cells:
+                tag = 'th' if i == 0 else 'td'
+                table_html += f'<{tag} class="border border-gray-400 px-4 py-2">{cell.strip()}</{tag}>'
+            table_html += '</tr>'
+        table_html += '</table>'
+        return table_html
+    
+    response = re.sub(r'((?:[^|\n]+\|)+[^|\n]+(?:\n(?:[^|\n]+\|)+[^|\n]+)*)', table_replace, response)
+    
+    # Convert markdown-style bold to HTML bold
+    response = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', response)
+    
+    # Convert markdown-style italic to HTML italic
+    response = re.sub(r'\*(.*?)\*', r'<em>\1</em>', response)
+    
+    # Convert newlines to <br> tags
+    response = response.replace('\n', '<br>')
+    
+    return response
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# Root Route
 @app.route("/")
 @login_required
 def root():
     return redirect(url_for('home'))
 
-# User Routes
 @app.route("/register", methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
@@ -127,11 +165,8 @@ def new_chat():
     db.session.add(chat)
     db.session.commit()
 
-    # Clear the uploads folder for new chat
-    uploads_dir = app.config['UPLOAD_FOLDER']
-    if os.path.exists(uploads_dir):
-        shutil.rmtree(uploads_dir)
-    os.makedirs(uploads_dir)
+    uploads_dir = os.path.join(app.config['UPLOAD_FOLDER'], str(chat.id))
+    os.makedirs(uploads_dir, exist_ok=True)
 
     return redirect(url_for('chat', chat_id=chat.id))
 
@@ -149,32 +184,33 @@ def send_message():
     chat_id = data['chat_id']
     content = data['message']
     
-    # Save user message
     user_message = Message(content=content, is_user=True, chat_id=chat_id)
     db.session.add(user_message)
     
-    # Retrieve relevant documents
-    query_embedding = model.encode([content])[0]
-    _, I = index.search(query_embedding.reshape(1, -1), k=3)
+    if documents:
+        context = "\n".join([f"Document: {doc[0]}\nSummary: {doc[1]}" for doc in documents])
+        prompt = f"Context:\n{context}\n\nUser: {content}\n\nAssistant: Based on the provided context, I'll answer the user's question. If the answer is not in the context, I'll say so and provide a general response. Use proper formatting for lists, tables, and other structured content."
+    else:
+        prompt = f"User: {content}\n\nAssistant: Provide a detailed response using proper formatting for lists, tables, and other structured content where appropriate."
+
+    response = requests.post('http://localhost:11434/api/generate',
+                             json={
+                                 "model": "llama3.1",
+                                 "prompt": prompt,
+                                 "stream": False
+                             })
+    bot_response = response.json()['response']
     
-    relevant_docs = [documents[i] for i in I[0]]
+    formatted_response = process_response(bot_response)
     
-    # Generate response (simplified without LLM)
-    bot_response = "Based on the documents I've processed, here's what I found:\n\n"
-    citations = []
+    citations = [doc[0] for doc in documents] if documents else []
     
-    for i, (doc_name, doc_content) in enumerate(relevant_docs, 1):
-        excerpt = doc_content[:200] + "..." if len(doc_content) > 200 else doc_content
-        bot_response += f"{i}. From document '{doc_name}':\n{excerpt}\n\n"
-        citations.append(doc_name)
-    
-    # Save bot message
-    bot_message = Message(content=bot_response, is_user=False, chat_id=chat_id, citations=json.dumps(citations))
+    bot_message = Message(content=formatted_response, is_user=False, chat_id=chat_id, citations=json.dumps(citations))
     db.session.add(bot_message)
     
     db.session.commit()
     
-    return jsonify({'bot_response': bot_response, 'citations': citations})
+    return jsonify({'bot_response': formatted_response, 'citations': citations})
 
 @app.route("/delete_chat/<int:chat_id>", methods=['POST'])
 @login_required
@@ -193,56 +229,52 @@ def upload_documents(chat_id):
     
     files = request.files.getlist('documents')
     
-    if not files:
-        flash('No selected file', 'danger')
-        return redirect(url_for('chat', chat_id=chat_id))
+    global documents
+    documents.clear()
     
-    successful_uploads = 0
+    uploads_dir = os.path.join(app.config['UPLOAD_FOLDER'], str(chat_id))
+    os.makedirs(uploads_dir, exist_ok=True)
+    
     for file in files:
         if file and allowed_file(file.filename):
             filename = secure_filename(file.filename)
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file_path = os.path.join(uploads_dir, filename)
             file.save(file_path)
             
-            # Process and add to documents list and FAISS index
             text = process_document(file_path)
-            documents.append((filename, text))
-            embedding = model.encode([text])[0]
-            index.add(embedding.reshape(1, -1))
-            successful_uploads += 1
+            summary = summarize_document(text, filename)
+            documents.append(summary)
     
-    if successful_uploads > 0:
-        flash(f'{successful_uploads} document(s) uploaded and processed successfully', 'success')
-    else:
-        flash('No documents were uploaded. Please check file types and try again.', 'warning')
-    
+    flash('Documents uploaded and processed successfully', 'success')
     return redirect(url_for('chat', chat_id=chat_id))
+
+@app.route("/get_documents/<int:chat_id>")
+@login_required
+def get_documents(chat_id):
+    chat = Chat.query.get_or_404(chat_id)
+    if chat.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    uploads_dir = os.path.join(app.config['UPLOAD_FOLDER'], str(chat_id))
+    if not os.path.exists(uploads_dir):
+        return jsonify([])
+
+    document_list = [f for f in os.listdir(uploads_dir) if os.path.isfile(os.path.join(uploads_dir, f))]
+    return jsonify(document_list)
 
 @app.route("/clear_chat/<int:chat_id>", methods=['POST'])
 @login_required
 def clear_chat(chat_id):
     chat = Chat.query.get_or_404(chat_id)
     
-    # Delete all messages associated with this chat
     Message.query.filter_by(chat_id=chat_id).delete()
     
-    # Clear the uploads folder
-    uploads_dir = app.config['UPLOAD_FOLDER']
-    for filename in os.listdir(uploads_dir):
-        file_path = os.path.join(uploads_dir, filename)
-        try:
-            if os.path.isfile(file_path) or os.path.islink(file_path):
-                os.unlink(file_path)
-            elif os.path.isdir(file_path):
-                shutil.rmtree(file_path)
-        except Exception as e:
-            print(f'Failed to delete {file_path}. Reason: {e}')
+    uploads_dir = os.path.join(app.config['UPLOAD_FOLDER'], str(chat_id))
+    if os.path.exists(uploads_dir):
+        shutil.rmtree(uploads_dir)
     
-    # Clear the documents list and FAISS index
     global documents
     documents.clear()
-    global index
-    index = faiss.IndexFlatL2(384)
     
     db.session.commit()
     flash('Chat cleared and all associated documents deleted', 'info')

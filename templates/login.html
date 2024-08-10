@@ -1,25 +1,55 @@
-{% extends "layout.html" %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - RAG Chatbot</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center">
+    <div class="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-8">Login</h1>
 
-{% block title %}Login{% endblock %}
+        <form method="POST" action="">
+            {{ form.hidden_tag() }}
+            
+            <div class="mb-4">
+                {{ form.email.label(class="block text-gray-700 text-sm font-bold mb-2") }}
+                {{ form.email(class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline") }}
+            </div>
 
-{% block content %}
-    <h1>Login</h1>
-    <form method="POST">
-        {{ form.hidden_tag() }}
-        <div>
-            {{ form.email.label }}<br>
-            {{ form.email(size=20) }}
-        </div>
-        <div>
-            {{ form.password.label }}<br>
-            {{ form.password(size=20) }}
-        </div>
-        <div>
-            {{ form.remember() }} {{ form.remember.label }}
-        </div>
-        <div>
-            {{ form.submit() }}
-        </div>
-    </form>
-    <a href="{{ url_for('register') }}">Don't have an account? Register here.</a>
-{% endblock %}
+            <div class="mb-6">
+                {{ form.password.label(class="block text-gray-700 text-sm font-bold mb-2") }}
+                {{ form.password(class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 mb-3 leading-tight focus:outline-none focus:shadow-outline") }}
+            </div>
+
+            <div class="flex items-center justify-between mb-6">
+                <div>
+                    {{ form.remember(class="mr-2") }}
+                    {{ form.remember.label(class="text-sm text-gray-700") }}
+                </div>
+                <a href="#" class="inline-block align-baseline font-bold text-sm text-blue-500 hover:text-blue-800">
+                    Forgot Password?
+                </a>
+            </div>
+
+            <div class="flex items-center justify-between">
+                {{ form.submit(class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline") }}
+                <a href="{{ url_for('register') }}" class="inline-block align-baseline font-bold text-sm text-blue-500 hover:text-blue-800">
+                    Register
+                </a>
+            </div>
+        </form>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="mt-4 p-4 rounded-lg {% if category == 'error' %}bg-red-100 text-red-700{% else %}bg-green-100 text-green-700{% endif %}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+</body>
+</html>
