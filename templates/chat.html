@@ -1,19 +1,161 @@
-{% extends "layout.html" %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ chat.title }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .chat-container {
+            height: calc(100vh - 300px);
+            overflow-y: auto;
+        }
+        .message {
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        .user-message {
+            background-color: #f3f4f6;
+        }
+        .bot-message {
+            background-color: #e5e7eb;
+        }
+        #userInput {
+            min-height: 40px;
+            max-height: 200px;
+            resize: none;
+            overflow-y: auto;
+        }
+        .citation {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold mb-4">{{ chat.title }}</h1>
+        
+        <!-- Document Upload Section -->
+        <div class="mb-4">
+            <form action="{{ url_for('upload_documents', chat_id=chat.id) }}" method="post" enctype="multipart/form-data">
+                <input type="file" name="documents" multiple accept=".txt,.doc,.docx,.pdf,.xls,.xlsx,.ppt,.pptx" class="mb-2">
+                <button type="submit" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Upload Documents</button>
+            </form>
+        </div>
 
-{% block title %}{{ chat.title }}{% endblock %}
+        <!-- Clear Chat Button -->
+        <div class="mb-4">
+            <form action="{{ url_for('clear_chat', chat_id=chat.id) }}" method="post" onsubmit="return confirm('Are you sure you want to clear this chat? This will delete all messages and uploaded documents.');">
+                <button type="submit" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">Clear Chat</button>
+            </form>
+        </div>
 
-{% block content %}
-    <h1>{{ chat.title }}</h1>
-    <div id="chatBox">
-        {{ chat.history | safe }}
+        <!-- Flash Messages -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} mb-4 p-4 rounded {% if category == 'danger' %}bg-red-100 text-red-700{% elif category == 'success' %}bg-green-100 text-green-700{% else %}bg-blue-100 text-blue-700{% endif %}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div class="chat-container bg-white rounded-lg shadow-md p-4 mb-4" data-chat-id="{{ chat.id }}">
+            {% for message in messages %}
+                <div class="flex {% if message.is_user %}justify-end{% else %}justify-start{% endif %} mb-4">
+                    <div class="message {% if message.is_user %}user-message{% else %}bot-message{% endif %} rounded-lg p-3">
+                        {{ message.content }}
+                        {% if not message.is_user and message.get_citations() %}
+                            <div class="citation">
+                                Sources:
+                                <ol>
+                                    {% for citation in message.get_citations() %}
+                                        <li>{{ citation }}</li>
+                                    {% endfor %}
+                                </ol>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+        <div class="flex items-center">
+            <textarea id="userInput" class="flex-grow border rounded-l-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500" rows="1" placeholder="Type your message..."></textarea>
+            <button id="sendButton" class="bg-blue-500 text-white px-4 py-2 rounded-r-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500">Send</button>
+        </div>
+        <div class="mt-4">
+            <a href="{{ url_for('home') }}" class="text-blue-500 hover:underline">Back to Home</a>
+        </div>
     </div>
-    <form method="POST" action="{{ url_for('upload') }}" enctype="multipart/form-data">
-        <input type="hidden" name="chat_id" value="{{ chat.id }}">
-        <input type="file" name="file">
-        <button type="submit">Upload File</button>
-    </form>
-    <form method="POST" action="{{ url_for('new_chat') }}">
-        <button type="submit">Start New Chat</button>
-    </form>
-    <a href="{{ url_for('home') }}">Back to Home</a>
-{% endblock %}
+
+    <script>
+        const userInput = document.getElementById('userInput');
+        const sendButton = document.getElementById('sendButton');
+        const chatContainer = document.querySelector('.chat-container');
+        const chatId = chatContainer.getAttribute('data-chat-id');
+
+        userInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+        });
+
+        sendButton.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        function sendMessage() {
+            const message = userInput.value.trim();
+            if (message) {
+                addMessageToChat('You', message);
+                fetch('/send_message', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        chat_id: chatId,
+                        message: message
+                    }),
+                })
+                .then(response => response.json())
+                .then(data => {
+                    addMessageToChat('Bot', data.bot_response, data.citations);
+                });
+                userInput.value = '';
+                userInput.style.height = 'auto';
+            }
+        }
+
+        function addMessageToChat(sender, message, citations = []) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('flex', 'mb-4', sender === 'You' ? 'justify-end' : 'justify-start');
+            let citationHtml = '';
+            if (citations.length > 0) {
+                citationHtml = `
+                    <div class="citation">
+                        Sources:
+                        <ol>
+                            ${citations.map(citation => `<li>${citation}</li>`).join('')}
+                        </ol>
+                    </div>
+                `;
+            }
+            messageDiv.innerHTML = `
+                <div class="message ${sender === 'You' ? 'user-message' : 'bot-message'} rounded-lg p-3">
+                    ${message}
+                    ${citationHtml}
+                </div>
+            `;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+    </script>
+</body>
+</html>
