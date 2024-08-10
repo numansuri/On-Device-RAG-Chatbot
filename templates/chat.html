@@ -1,0 +1,19 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ chat.title }}{% endblock %}
+
+{% block content %}
+    <h1>{{ chat.title }}</h1>
+    <div id="chatBox">
+        {{ chat.history | safe }}
+    </div>
+    <form method="POST" action="{{ url_for('upload') }}" enctype="multipart/form-data">
+        <input type="hidden" name="chat_id" value="{{ chat.id }}">
+        <input type="file" name="file">
+        <button type="submit">Upload File</button>
+    </form>
+    <form method="POST" action="{{ url_for('new_chat') }}">
+        <button type="submit">Start New Chat</button>
+    </form>
+    <a href="{{ url_for('home') }}">Back to Home</a>
+{% endblock %}

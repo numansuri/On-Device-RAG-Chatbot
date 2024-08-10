@@ -1,0 +1,23 @@
+{% extends "layout.html" %}
+
+{% block title %}Home{% endblock %}
+
+{% block content %}
+    <h1>Welcome, {{ current_user.username }}</h1>
+    <form method="POST" action="{{ url_for('new_chat') }}">
+        <input type="text" name="title" placeholder="New Chat Title" required>
+        <button type="submit">Start New Chat</button>
+    </form>
+    <h2>Your Chats</h2>
+    <ul>
+        {% for chat in chats %}
+        <li>
+            <a href="{{ url_for('chat', chat_id=chat.id) }}">{{ chat.title }}</a>
+            <form method="POST" action="{{ url_for('delete_chat', chat_id=chat.id) }}" style="display:inline;">
+                <button type="submit">Delete</button>
+            </form>
+        </li>
+        {% endfor %}
+    </ul>
+    <a href="{{ url_for('logout') }}">Logout</a>
+{% endblock %}
