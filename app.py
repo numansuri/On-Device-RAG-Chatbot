@@ -4,6 +4,9 @@ from flask_bcrypt import Bcrypt
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from models import db, User, Chat, Message
 from forms import RegistrationForm, LoginForm
+from sentence_transformers import SentenceTransformer
+import faiss
+import numpy as np
 import os
 import shutil
 from werkzeug.utils import secure_filename
@@ -35,8 +38,26 @@ def init_db():
 
 init_db()
 
+# Initialize the sentence transformer model
+model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+
+# Create a FAISS index for vector search
+index = None
+doc_embeddings = []
+doc_metadata = []  # To store metadata like filenames or doc IDs
+
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def chunk_text(text, chunk_size=1000, overlap=200):
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start += chunk_size - overlap
+    return chunks
 
 def process_document(file_path):
     _, file_extension = os.path.splitext(file_path)
@@ -59,10 +80,16 @@ def process_document(file_path):
     else:
         text = ""
     
-    return text
+    # Chunk the text
+    text_chunks = chunk_text(text)
+    
+    # Generate embeddings for each chunk
+    embeddings = [model.encode([chunk])[0] for chunk in text_chunks]
+    
+    return text_chunks, embeddings
 
 def summarize_document(text, filename):
-    prompt = f"Summarize the following document in 3-5 sentences:\n\n{text[:1000]}..."  # Limit text to prevent token overflow
+    prompt = f"Look at the entire document, no matter how large it is, and summarize it in 3-5 sentences:\n\n{text[:1000]}..."  # Limit text to prevent token overflow
     response = requests.post('http://localhost:11434/api/generate',
                              json={
                                  "model": "llama3.1",
@@ -187,9 +214,14 @@ def send_message():
     user_message = Message(content=content, is_user=True, chat_id=chat_id)
     db.session.add(user_message)
     
-    if documents:
-        context = "\n".join([f"Document: {doc[0]}\nSummary: {doc[1]}" for doc in documents])
-        prompt = f"Context:\n{context}\n\nUser: {content}\n\nAssistant: Based on the provided context, I'll answer the user's question. If the answer is not in the context, I'll say so and provide a general response. Use proper formatting for lists, tables, and other structured content."
+    if documents and index is not None:
+        query_embedding = model.encode([content])
+        _, I = index.search(query_embedding, k=10)  # Get top 10 relevant chunks
+
+        relevant_chunks = [doc_metadata[i] for i in I[0]]
+        context = "\n".join([f"Chunk from {doc['filename']}:\n{doc['chunk_text']}" for doc in relevant_chunks])
+        prompt = f"Context:\n{context}\n\nUser: {content}\n\nAssistant: Based on the provided context, I'll answer the user's question. If the answer is not in the context, I'll say so and provide a general response. Use proper formatting for lists, tables, and other structured content.\
+            I will also do a deep search of the document, no matter how big the document is."
     else:
         prompt = f"User: {content}\n\nAssistant: Provide a detailed response using proper formatting for lists, tables, and other structured content where appropriate."
 
@@ -203,7 +235,7 @@ def send_message():
     
     formatted_response = process_response(bot_response)
     
-    citations = [doc[0] for doc in documents] if documents else []
+    citations = [doc['filename'] for doc in relevant_chunks] if documents else []
     
     bot_message = Message(content=formatted_response, is_user=False, chat_id=chat_id, citations=json.dumps(citations))
     db.session.add(bot_message)
@@ -229,9 +261,11 @@ def upload_documents(chat_id):
     
     files = request.files.getlist('documents')
     
-    global documents
+    global documents, index, doc_embeddings, doc_metadata
     documents.clear()
-    
+    doc_embeddings = []
+    doc_metadata = []
+
     uploads_dir = os.path.join(app.config['UPLOAD_FOLDER'], str(chat_id))
     os.makedirs(uploads_dir, exist_ok=True)
     
@@ -241,9 +275,21 @@ def upload_documents(chat_id):
             file_path = os.path.join(uploads_dir, filename)
             file.save(file_path)
             
-            text = process_document(file_path)
-            summary = summarize_document(text, filename)
+            text_chunks, embeddings = process_document(file_path)
+            summary = summarize_document(text_chunks[0], filename)  # Use the first chunk to create a summary
             documents.append(summary)
+
+            # Store embeddings and metadata for each chunk
+            for i, embedding in enumerate(embeddings):
+                doc_embeddings.append(embedding)
+                doc_metadata.append({'filename': filename, 'chunk_index': i, 'chunk_text': text_chunks[i]})
+    
+    # Update the FAISS index with new embeddings
+    if doc_embeddings:
+        doc_embeddings_np = np.array(doc_embeddings)
+        if index is None:
+            index = faiss.IndexFlatL2(doc_embeddings_np.shape[1])  # L2 distance
+        index.add(doc_embeddings_np)
     
     flash('Documents uploaded and processed successfully', 'success')
     return redirect(url_for('chat', chat_id=chat_id))
@@ -287,5 +333,5 @@ def reset_db():
         print("Database tables created.")
 
 if __name__ == '__main__':
-    reset_db()  # Comment this line out after running once
+    #reset_db()  # Comment this line out after running once
     app.run(debug=True)
