@@ -81,7 +81,7 @@ def process_response(response):
     response = re.sub(r'(•\s*.*?)(?=\n•|\Z)', r'<li>\1</li>', response, flags=re.DOTALL)
     response = re.sub(r'((?:<li>.*?</li>\n*)+)', r'<ul>\1</ul>', response, flags=re.DOTALL)
     
-    # Convert simple tables (assuming pipe-separated values)
+    # Convert tables
     def table_replace(match):
         rows = match.group(1).split('\n')
         table_html = '<table class="border-collapse border border-gray-400 w-full">'
@@ -95,7 +95,7 @@ def process_response(response):
         table_html += '</table>'
         return table_html
     
-    response = re.sub(r'((?:[^|\n]+\|)+[^|\n]+(?:\n(?:[^|\n]+\|)+[^|\n]+)*)', table_replace, response)
+    response = re.sub(r'\n((?:[^|\n]+\|)+[^|\n]+(?:\n(?:[^|\n]+\|)+[^|\n]+)*)', table_replace, response)
     
     # Convert markdown-style bold to HTML bold
     response = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', response)
@@ -103,8 +103,8 @@ def process_response(response):
     # Convert markdown-style italic to HTML italic
     response = re.sub(r'\*(.*?)\*', r'<em>\1</em>', response)
     
-    # Convert newlines to <br> tags
-    response = response.replace('\n', '<br>')
+    # Convert newlines to <br> tags, except within HTML tags
+    response = re.sub(r'(?<!>)\n(?!<)', '<br>', response)
     
     return response
 
