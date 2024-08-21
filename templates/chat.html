@@ -106,11 +106,9 @@
                             {% if not message.is_user and message.get_citations() %}
                                 <div class="citation">
                                     Sources:
-                                    <ol>
-                                        {% for citation in message.get_citations() %}
-                                            <li>{{ citation }}</li>
-                                        {% endfor %}
-                                    </ol>
+                                    {% for citation in message.get_citations() %}
+                                        {{ citation }}{% if not loop.last %}, {% endif %}
+                                    {% endfor %}
                                 </div>
                             {% endif %}
                         </div>
@@ -176,10 +174,7 @@
             if (citations.length > 0) {
                 citationHtml = `
                     <div class="citation">
-                        Sources:
-                        <ol>
-                            ${citations.map(citation => `<li>${citation}</li>`).join('')}
-                        </ol>
+                        Sources: ${citations.join(', ')}
                     </div>
                 `;
             }

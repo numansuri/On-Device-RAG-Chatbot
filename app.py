@@ -236,8 +236,12 @@ def send_message():
         context = "\n".join([f"Chunk from {doc['filename']}:\n{doc['chunk_text']}" for doc in relevant_chunks])
         prompt = f"Context:\n{context}\n\nUser: {content}\n\nAssistant: Based on the provided context, I'll answer the user's question. If the answer is not in the context, I'll say so and provide a general response. Use proper formatting for lists, tables, and other structured content.\
             I will also do a deep search of the document, no matter how big the document is."
+        
+        # Deduplicate citations without limiting the number
+        citations = list(dict.fromkeys(doc['filename'] for doc in relevant_chunks))
     else:
         prompt = f"User: {content}\n\nAssistant: Provide a detailed response using proper formatting for lists, tables, and other structured content where appropriate."
+        citations = []
 
     response = requests.post('http://localhost:11434/api/generate',
                              json={
@@ -248,8 +252,6 @@ def send_message():
     bot_response = response.json()['response']
     
     formatted_response = process_response(bot_response)
-    
-    citations = [doc['filename'] for doc in relevant_chunks] if documents else []
     
     bot_message = Message(content=formatted_response, is_user=False, chat_id=chat_id, citations=json.dumps(citations))
     db.session.add(bot_message)
