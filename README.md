@@ -72,7 +72,7 @@ This project is an on-device Retrieval-Augmented Generation (RAG) chatbot that u
       - Click the "Run" or "Play" button next to the `run.py` file.
 
 3. **Access the application:**
-   Open a web browser and go to `http://localhost:5000`
+   Open a web browser and go to `http://localhost:5000` or `http://127.0.0.1:5000`
 
 4. **Register a new account or log in.**
 
