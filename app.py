@@ -17,6 +17,7 @@ import PyPDF2
 import docx
 import pandas as pd
 import re
+from pptx import Presentation
 
 app = Flask(__name__)
 app.config.from_object('config.Config')
@@ -74,6 +75,13 @@ def process_document(file_path):
     elif file_extension in ['.xls', '.xlsx']:
         df = pd.read_excel(file_path)
         text = df.to_string()
+    elif file_extension in ['.ppt', '.pptx']:
+        prs = Presentation(file_path)
+        text = ""
+        for slide in prs.slides:
+            for shape in slide.shapes:
+                if hasattr(shape, 'text'):
+                    text += shape.text + "\n"
     elif file_extension == '.txt':
         with open(file_path, 'r') as file:
             text = file.read()
@@ -167,10 +175,16 @@ def login():
         user = User.query.filter_by(email=form.email.data).first()
         if user and bcrypt.check_password_hash(user.password, form.password.data):
             login_user(user, remember=form.remember.data)
-            return redirect(url_for('home'))
+            next_page = request.args.get('next')
+            print(f"User {user.email} logged in successfully")  # Debug print
+            return redirect(next_page) if next_page else redirect(url_for('home'))
         else:
+            print(f"Failed login attempt for email: {form.email.data}")  # Debug print
             flash('Login Unsuccessful. Please check email and password', 'danger')
-    return render_template('login.html', form=form)
+    else:
+        print(f"Form validation failed: {form.errors}")  # Debug print
+    return render_template('login.html', title='Login', form=form)
+
 
 @app.route("/logout")
 @login_required

@@ -13,3 +13,4 @@ openpyxl==3.1.2
 requests==2.31.0
 gunicorn==20.1.0
 email_validator==2.0.0
+python-pptx==0.6.21
