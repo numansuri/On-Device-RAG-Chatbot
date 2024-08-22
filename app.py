@@ -21,6 +21,7 @@ from pptx import Presentation
 
 app = Flask(__name__)
 app.config.from_object('config.Config')
+
 db.init_app(app)
 bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
@@ -234,8 +235,7 @@ def send_message():
 
         relevant_chunks = [doc_metadata[i] for i in I[0]]
         context = "\n".join([f"Chunk from {doc['filename']}:\n{doc['chunk_text']}" for doc in relevant_chunks])
-        prompt = f"Context:\n{context}\n\nUser: {content}\n\nAssistant: Based on the provided context, I'll answer the user's question. If the answer is not in the context, I'll say so and provide a general response. Use proper formatting for lists, tables, and other structured content.\
-            I will also do a deep search of the document, no matter how big the document is."
+        prompt = f"Context:\n{context}\n\nUser: {content}\n\nAssistant: Based on the provided context, I'll answer the user's question. If the answer is not in the context, I'll say so and provide a general response. Use proper formatting for lists, tables, and other structured content."
         
         # Deduplicate citations without limiting the number
         citations = list(dict.fromkeys(doc['filename'] for doc in relevant_chunks))
@@ -243,13 +243,27 @@ def send_message():
         prompt = f"User: {content}\n\nAssistant: Provide a detailed response using proper formatting for lists, tables, and other structured content where appropriate."
         citations = []
 
-    response = requests.post('http://localhost:11434/api/generate',
-                             json={
-                                 "model": "llama3.1",
-                                 "prompt": prompt,
-                                 "stream": False
-                             })
-    bot_response = response.json()['response']
+    try:
+        response = requests.post(app.config['LLAMA_ENDPOINT'],
+                                 json={
+                                     "model": "llama3.1",
+                                     "prompt": prompt,
+                                     "stream": False
+                                 }, timeout=30)  # 30 second timeout
+        response.raise_for_status()  # Raises an HTTPError for bad responses
+        data = response.json()
+        if 'response' not in data:
+            raise KeyError("'response' key not found in API response")
+        bot_response = data['response']
+    except requests.RequestException as e:
+        app.logger.error(f"Error calling Llama API: {e}")
+        return jsonify({'error': 'Failed to communicate with AI model'}), 503
+    except KeyError as e:
+        app.logger.error(f"Unexpected API response format: {e}")
+        return jsonify({'error': 'Unexpected response from AI model'}), 500
+    except Exception as e:
+        app.logger.error(f"Unexpected error in send_message: {e}")
+        return jsonify({'error': 'An unexpected error occurred'}), 500
     
     formatted_response = process_response(bot_response)
     

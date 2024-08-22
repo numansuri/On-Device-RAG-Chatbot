@@ -145,27 +145,42 @@
         });
 
         function sendMessage() {
-            const message = userInput.value.trim();
-            if (message) {
-                addMessageToChat('You', message);
-                fetch('/send_message', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        chat_id: chatId,
-                        message: message
-                    }),
-                })
-                .then(response => response.json())
-                .then(data => {
-                    addMessageToChat('Bot', data.bot_response, data.citations);
-                });
-                userInput.value = '';
-                userInput.style.height = 'auto';
+    const message = userInput.value.trim();
+    if (message) {
+        addMessageToChat('You', message);
+        fetch('/send_message', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                chat_id: chatId,
+                message: message
+            }),
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
             }
-        }
+            return response.json();
+        })
+        .then(data => {
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            addMessageToChat('Bot', data.bot_response, data.citations);
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            addMessageToChat('Bot', 'Sorry, an error occurred: ' + error.message);
+        })
+        .finally(() => {
+            userInput.value = '';
+            userInput.style.height = 'auto';
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        });
+    }
+}
 
         function addMessageToChat(sender, message, citations = []) {
             const messageDiv = document.createElement('div');
